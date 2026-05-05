@@ -1,0 +1,16 @@
+# Ignore IDE files
+.idea/
+
+# Ignore large datasets
+data/raw/
+data/processed/
+
+# Ignore file types
+*.zip
+*.csv
+*.parquet
+data/*.xlsx
+
+# Python stuff
+__pycache__/
+.ipynb_checkpoints/
