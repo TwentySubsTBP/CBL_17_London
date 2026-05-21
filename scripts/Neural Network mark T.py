@@ -10,7 +10,7 @@ hidden_dim1 = 1
 hidden_dim2 = 1
 output_dim = 1
 
-" This is the actual Neural Network architecture that is going to be used"
+# This is the actual Neural Network architecture that is going to be used
 
 class CrimeRiskNetwork(pt.nn.Module):
     def __init__(self, input_dim, hidden_dim1, hidden_dim2, output_dim):
@@ -35,7 +35,7 @@ model = CrimeRiskNetwork(input_dim, hidden_dim1, hidden_dim2, output_dim)
 print(model)
 
 
-"This part is used for training"
+# This part is used for training
 
 learning_rate = 0.01
 loss_fn = pt.nn.BCEWithLogitsLoss
