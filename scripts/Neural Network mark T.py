@@ -1,11 +1,16 @@
 import torch as pt 
+from torch.utils.data import DataLoader
 
-"""We're going to create a Neural Network that trains on the crime data """
+"""
+We're going to create a Neural Network that trains on the crime data
+"""
 
 input_dim = 1
 hidden_dim1 = 1
 hidden_dim2 = 1
 output_dim = 1
+
+" This is the actual Neural Network architecture that is going to be used"
 
 class CrimeRiskNetwork(pt.nn.Module):
     def __init__(self, input_dim, hidden_dim1, hidden_dim2, output_dim):
@@ -29,13 +34,21 @@ class CrimeRiskNetwork(pt.nn.Module):
 model = CrimeRiskNetwork(input_dim, hidden_dim1, hidden_dim2, output_dim)
 print(model)
 
+
+"This part is used for training"
+
 learning_rate = 0.01
 loss_fn = pt.nn.BCEWithLogitsLoss
 optimizer = pt.optim.AdamW(model.parameters(), lr = learning_rate, weight_decay=0.001)
 
-num_epochs = 10000
+num_epochs = 10000 # Epochs are basically just the number of times a dataset is 'studied' by a Neural Net 
 loss_values = []
 
+training_data = pd.read_parquet()
+test_data = pd.read_parquet()
+
+train_dataloader = DataLoader(training_data, batch_size=64, shuffle=True)
+test_dataloader = DataLoader(test_data, batch_size=64, shuffle=True)
 
 for epoch in range(num_epochs):
     for X, y in pt.train_dataloader:
