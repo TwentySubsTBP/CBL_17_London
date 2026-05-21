@@ -130,5 +130,5 @@ print(f"\n--- SUCCESS ---")
 print(f"Final shape: {df_final.shape[0]} rows x {df_final.shape[1]} columns")
 
 
-#df_final.to_csv("cnn_code_based_crime_pipeline.csv", index=False)
-df_final.to_parquet("crime_data.parquet")
+df_final.to_csv("crime_data.csv", index=False)
+df_final.to_parquet("crime_data.parquet", index=False)
