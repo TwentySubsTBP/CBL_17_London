@@ -120,7 +120,9 @@ df_time_series["crime_3m_ago"] = grouped_local.shift(3)
 df_time_series["crime_6m_ago"] = grouped_local.shift(6)
 df_time_series["yearly_avg"] = grouped_local.transform(lambda x: x.shift(1).rolling(window=12).mean())
 
-
+df_time_series["neighbor_1m_ago"] = grouped_spatial.shift(1)
+df_time_series["neighbor_3m_ago"] = grouped_spatial.shift(3)
+df_time_series["neighbor_6m_ago"] = grouped_spatial.shift(6)
 # =====================================================================
 # 7. FINAL FILTERING & SAVE
 # =====================================================================

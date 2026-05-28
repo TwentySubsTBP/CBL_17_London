@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Configure
 
-DATA_PATH = Path(r"dummy path")  # Replace with actual path 
+DATA_PATH = Path(r"scripts\crime_data.parquet")  # Replace with actual path
 
 LSOA_COL = "LSOA code"
 MONTH_COL = "Month"
@@ -184,3 +184,15 @@ rmse = np.sqrt(np.mean((preds - y_test) ** 2))
 
 print(f"\nTest MAE: {mae:.3f}")
 print(f"Test RMSE: {rmse:.3f}")
+
+
+
+print("y_test min/max/mean:", y_test.min(), y_test.max(), y_test.mean())
+
+print("pred_log min/max/mean:", pred_log.min(), pred_log.max(), pred_log.mean())
+
+pred_count = torch.expm1(pred_log)
+
+print("pred_count min/max/mean:", pred_count.min(), pred_count.max(), pred_count.mean())
+print("Any NaN predictions?", torch.isnan(pred_count).any().item())
+print("Any inf predictions?", torch.isinf(pred_count).any().item())
