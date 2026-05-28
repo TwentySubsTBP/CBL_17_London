@@ -90,17 +90,19 @@ X_test = (X_test - mean) / std
 # Actual model
 
 class CrimeRiskNetwork(pt.nn.Module):
-    def __init__(self, input_dim):
+    def __init__(self, input_dim, max_log_count):
         super().__init__()
         self.linear = pt.nn.Linear(input_dim, 1)
+        self.max_log_count = max_log_count
 
     def forward(self, x):
-        return self.linear(x)
+        return self.max_log_count * pt.sigmoid(self.linear(x))
 
 # Train function using MSE on log-counts
 
 def train_model():
-    model = CrimeRiskNetwork(X_train.shape[1]).to(device)
+    max_log_count = float(np.log1p(y_train.max()))
+    model = CrimeRiskNetwork(X_train.shape[1], max_log_count).to(device)
 
     loss_fn = pt.nn.MSELoss()
 
