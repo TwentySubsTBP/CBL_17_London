@@ -63,6 +63,7 @@ df["neighbor_ratio_1m"] = df["neighbor_crime_count"] / (df["neighbor_1m_ago"] + 
 # Features of the file
 
 candidate_features = [
+    # simple crime features 
     "crime_count",
     "crime_1m_ago",
     "crime_3m_ago",
@@ -72,10 +73,14 @@ candidate_features = [
     "neighbor_1m_ago",
     "neighbor_3m_ago",
     "neighbor_6m_ago",
+
+    # time features
     "month_sin",
     "month_cos",
     "quarter",
     "year", 
+
+    # trends and crime ratios vis-a-vis months before
     "trend_1m",
     "trend_3m",
     "trend_6m",
