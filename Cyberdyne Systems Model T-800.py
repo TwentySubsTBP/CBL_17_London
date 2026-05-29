@@ -3,10 +3,11 @@ import pandas as pd
 import torch as pt
 from torch.utils.data import DataLoader, TensorDataset
 from pathlib import Path
+from sympy import Lambda 
 
 # Configure
 
-DATA_PATH = Path(r"scripts\crime_data.parquet")  # Replace with actual path
+DATA_PATH = Path(r"c:\Users\20241553\Documents\crime_project\crime_data.parquet")  # Replace with actual path 
 
 LSOA_COL = "LSOA code"
 MONTH_COL = "Month"
@@ -37,6 +38,28 @@ df["target_month"] = df["next_month"]
 
 df = df.dropna(subset=["crime_next_month"])
 
+df["month_num"] = df[MONTH_COL].dt.month
+df["month_sin"] = np.sin(2 * np.pi * df["month_num"] / 12)
+df["month_cos"] = np.cos(2 * np.pi * df["month_num"] / 12)
+df["quarter"] = df[MONTH_COL].dt.quarter
+df["year"] = df[MONTH_COL].dt.year
+
+df["trend_1m"] = df["crime_count"] - df["crime_1m_ago"]
+df["trend_3m"] = df["crime_count"] - df["crime_3m_ago"]
+df["trend_6m"] = df["crime_count"] - df["crime_6m_ago"]
+
+df["neighbor_trend_1m"] = df["neighbor_crime_count"] - df["neighbor_1m_ago"]
+df["neighbor_trend_3m"] = df["neighbor_crime_count"] - df["neighbor_3m_ago"]
+df["neighbor_trend_6m"] = df["neighbor_crime_count"] - df["neighbor_6m_ago"]
+
+eps = 1e-6
+
+df["crime_ratio_1m"] = df["crime_count"] / (df["crime_1m_ago"] + eps)
+df["crime_ratio_3m"] = df["crime_count"] / (df["crime_3m_ago"] + eps)
+
+df["neighbor_ratio_1m"] = df["neighbor_crime_count"] / (df["neighbor_1m_ago"] + eps)
+
+
 # Features of the file
 
 candidate_features = [
@@ -49,6 +72,19 @@ candidate_features = [
     "neighbor_1m_ago",
     "neighbor_3m_ago",
     "neighbor_6m_ago",
+    "month_sin",
+    "month_cos",
+    "quarter",
+    "year", 
+    "trend_1m",
+    "trend_3m",
+    "trend_6m",
+    "neighbor_trend_1m",
+    "neighbor_trend_3m",
+    "neighbor_trend_6m",
+    "crime_ratio_1m",
+    "crime_ratio_3m",
+    "neighbor_ratio_1m"
 ]
 
 feature_cols = [c for c in candidate_features if c in df.columns]
@@ -90,22 +126,24 @@ X_test = (X_test - mean) / std
 # Actual model
 
 class CrimeRiskNetwork(pt.nn.Module):
-    def __init__(self, input_dim, max_log_count):
+    def __init__(self, input_dim):
         super().__init__()
-        self.linear = pt.nn.Linear(input_dim, 1)
-        self.max_log_count = max_log_count
+        self.net = pt.nn.Sequential(
+            pt.nn.Linear(input_dim, 64),
+            pt.nn.ReLU(),
+            pt.nn.Linear(64, 32),
+            pt.nn.ReLU(),
+            pt.nn.Linear(32, 1)
+        )
 
     def forward(self, x):
-        return self.max_log_count * pt.sigmoid(self.linear(x))
-
+        return self.net(x)
 # Train function using MSE on log-counts
 
 def train_model():
-    max_log_count = float(np.log1p(y_train.max()))
-    model = CrimeRiskNetwork(X_train.shape[1], max_log_count).to(device)
+    model = CrimeRiskNetwork(X_train.shape[1]).to(device)
 
     loss_fn = pt.nn.MSELoss()
-
     y_train_t = pt.tensor(np.log1p(y_train), dtype=pt.float32)
     y_val_t = pt.tensor(np.log1p(y_val), dtype=pt.float32)
 
@@ -186,15 +224,3 @@ rmse = np.sqrt(np.mean((preds - y_test) ** 2))
 
 print(f"\nTest MAE: {mae:.3f}")
 print(f"Test RMSE: {rmse:.3f}")
-
-
-
-print("y_test min/max/mean:", y_test.min(), y_test.max(), y_test.mean())
-
-print("pred_log min/max/mean:", pred_log.min(), pred_log.max(), pred_log.mean())
-
-pred_count = torch.expm1(pred_log)
-
-print("pred_count min/max/mean:", pred_count.min(), pred_count.max(), pred_count.mean())
-print("Any NaN predictions?", torch.isnan(pred_count).any().item())
-print("Any inf predictions?", torch.isinf(pred_count).any().item())
