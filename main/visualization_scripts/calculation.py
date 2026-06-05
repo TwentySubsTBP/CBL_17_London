@@ -279,7 +279,7 @@ def remap_results(
 # Only runs when you execute this file directly
 if __name__ == "__main__":
     from pathlib import Path
-    from visualization_scripts.visualization import plot_regression_heatmaps
+    from main.visualization_scripts.visualization import plot_regression_heatmaps
 
     GEOJSON = Path("LSOA_(2021)_EW_BSC_V4_to_Rural_Urban_Classification.geojson")
     LOOKUP  = Path("LSOA_(2011)_to_LSOA_(2021)_to_Local_Authority_District_(2022)_Exact_Fit_Lookup_for_EW_(V3).csv");
