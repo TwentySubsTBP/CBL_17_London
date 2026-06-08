@@ -52,18 +52,18 @@ df["neighbor_trend_1m"] = df["neighbor_crime_count"] - df["neighbor_1m_ago"]
 df["neighbor_trend_3m"] = df["neighbor_crime_count"] - df["neighbor_3m_ago"]
 df["neighbor_trend_6m"] = df["neighbor_crime_count"] - df["neighbor_6m_ago"]
 
-eps = 1e-6
+df["crime_ratio_1m"] = df["crime_count"] / (df["crime_1m_ago"] + 1.0)
+df["crime_ratio_3m"] = df["crime_count"] / (df["crime_3m_ago"] + 1.0)
+df["neighbor_ratio_1m"] = df["neighbor_crime_count"] / (df["neighbor_1m_ago"] + 1.0)
 
-df["crime_ratio_1m"] = df["crime_count"] / (df["crime_1m_ago"] + eps)
-df["crime_ratio_3m"] = df["crime_count"] / (df["crime_3m_ago"] + eps)
-
-df["neighbor_ratio_1m"] = df["neighbor_crime_count"] / (df["neighbor_1m_ago"] + eps)
+ratio_cols = ["crime_ratio_1m", "crime_ratio_3m", "neighbor_ratio_1m"]
+for c in ratio_cols:
+    df[c] = df[c].clip(0, 10)
 
 
 # Features of the file
 
 candidate_features = [
-    # simple crime features 
     "crime_count",
     "crime_1m_ago",
     "crime_3m_ago",
@@ -73,14 +73,10 @@ candidate_features = [
     "neighbor_1m_ago",
     "neighbor_3m_ago",
     "neighbor_6m_ago",
-
-    # time features
     "month_sin",
     "month_cos",
     "quarter",
     "year", 
-
-    # trends and crime ratios vis-a-vis months before
     "trend_1m",
     "trend_3m",
     "trend_6m",
@@ -128,6 +124,11 @@ X_train = (X_train - mean) / std
 X_val = (X_val - mean) / std
 X_test = (X_test - mean) / std
 
+test_metadata = df.loc[
+    test_mask,
+    [LSOA_COL, MONTH_COL, "target_month"]
+].reset_index(drop=True)
+
 # Actual model
 
 class CrimeRiskNetwork(pt.nn.Module):
@@ -148,9 +149,9 @@ class CrimeRiskNetwork(pt.nn.Module):
 def train_model():
     model = CrimeRiskNetwork(X_train.shape[1]).to(device)
 
-    loss_fn = pt.nn.MSELoss()
-    y_train_t = pt.tensor(np.log1p(y_train), dtype=pt.float32)
-    y_val_t = pt.tensor(np.log1p(y_val), dtype=pt.float32)
+    loss_fn = pt.nn.PoissonNLLLoss(log_input=True, full=False)
+    y_train_t = pt.tensor(y_train, dtype=pt.float32)
+    y_val_t = pt.tensor(y_val, dtype=pt.float32)
 
     optimizer = pt.optim.AdamW(model.parameters(), lr=LR)
 
@@ -204,7 +205,7 @@ def train_model():
 
 # Train model
 
-print("\nTraining MSE-log model...")
+print("\nTraining Poisson model...")
 model, val_loss = train_model()
 
 print(f"\nFinal validation loss: {val_loss:.4f}")
@@ -218,14 +219,47 @@ X_test_t = pt.tensor(X_test, dtype=pt.float32).to(device)
 with pt.no_grad():
     raw_preds = model(X_test_t).cpu().numpy().flatten()
 
-# Convert predicted log-counts back to predicted crime counts
-preds = np.expm1(raw_preds)
+# Convert predicted log-rate back to predicted crime counts
+preds = np.exp(raw_preds)
 
-# Prevent negative predicted counts
-preds = np.maximum(preds, 0)
+# Calculate errors
+absolute_errors = np.abs(preds - y_test)
+squared_errors = (preds - y_test) ** 2
 
-mae = np.mean(np.abs(preds - y_test))
-rmse = np.sqrt(np.mean((preds - y_test) ** 2))
+mae = np.mean(absolute_errors)
+rmse = np.sqrt(np.mean(squared_errors))
 
 print(f"\nTest MAE: {mae:.3f}")
 print(f"Test RMSE: {rmse:.3f}")
+
+# Store identifying information alongside predictions
+results = test_metadata.copy()
+
+results["actual_crime_count"] = y_test
+results["predicted_crime_count"] = preds
+results["absolute_error"] = absolute_errors
+
+print("\nSample predictions:")
+print(results.head(30).to_string(index=False))
+
+print("\nLargest absolute errors:")
+print(
+    results
+    .sort_values("absolute_error", ascending=False)
+    .head(30)
+    .to_string(index=False)
+)
+
+month_to_inspect = pd.Timestamp("2025-07-01")
+
+monthly_results = results[
+    results["target_month"] == month_to_inspect
+].copy()
+
+print(f"\nHighest predicted crime counts for {month_to_inspect.date()}:")
+print(
+    monthly_results
+    .sort_values("predicted_crime_count", ascending=False)
+    .head(30)
+    .to_string(index=False)
+)
