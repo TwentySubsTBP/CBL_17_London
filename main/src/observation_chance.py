@@ -75,58 +75,37 @@ gdf = gdf[gdf["Month"] >= pd.Period("2023-05", freq="M")].copy()
 print(gdf.head(5), '\n')
 
 ########################################
-# Estimate exposure
-police_activity_lsoa_month = gdf.groupby(['LSOA21CD', 'Force', 'Month']).size().reset_index(name = "n_police_activity")
-# print("Police activity per LSOA per Month:")
-# print(police_activity_lsoa_month.head(), '\n')
+# Estimate exposure (POOLED OVER ALL FORCES)
+police_activity_lsoa_month = (
+    gdf.groupby(['LSOA21CD', 'Month'])
+    .size()
+    .reset_index(name="n_police_activity")
+)
 
-duplicate_forces = {}
-for _, row in police_activity_lsoa_month.iterrows():
-    lsoa = row["LSOA21CD"]
-    force = row["Force"]
-    if lsoa not in duplicate_forces:
-        duplicate_forces[lsoa] = []
-        duplicate_forces[lsoa].append(force)
-    else:
-        if force not in duplicate_forces[lsoa]:
-            duplicate_forces[lsoa].append(force)
-
-count_duplicates = 0
-# print("LSOA's with multiple forces:")
-for lsoa, forces in duplicate_forces.items():
-    if len(forces) > 1:
-        count_duplicates += 1
-        # print(lsoa, forces, '\n')
-
-multiple_forces_percentage = round((count_duplicates / len(duplicate_forces))* 100, 1)
-print("Percentage of LSOA's with multiple forces", multiple_forces_percentage, '%', '\n')
-
-monthly_total_per_force = (
+monthly_total = (
     police_activity_lsoa_month
-    .groupby(["Force", "Month"])["n_police_activity"]
+    .groupby(["Month"])["n_police_activity"]
     .sum()
     .reset_index(name="n_police_activity_monthly_total")
 )
-# print("Monthly total of police activity, per force:")
-# print(monthly_total_per_force.head(), '\n')
 
 estimated_exposure_df = police_activity_lsoa_month.merge(
-    monthly_total_per_force,
-    on=["Force", "Month"],
+    monthly_total,
+    on=["Month"],
     how="left"
 )
 
-estimated_exposure_df["estimated_exposure_lsoa_month_force"] = (
+estimated_exposure_df["estimated_exposure_lsoa_month"] = (
     estimated_exposure_df["n_police_activity"] /
     estimated_exposure_df["n_police_activity_monthly_total"]
 )
 
-print("Estimated exposure of each LSOA per month relative to the total police activity in the force that month:")
+print("Estimated exposure of each LSOA per month relative to total police activity (pooled):")
 print(estimated_exposure_df.head(), '\n')
 
 # Top 20 highest exposure
 top_20 = estimated_exposure_df.sort_values(
-    "estimated_exposure_lsoa_month_force",
+    "estimated_exposure_lsoa_month",
     ascending=False
 ).head(20)
 
@@ -135,29 +114,64 @@ print(top_20, '\n')
 
 # 5 lowest exposure
 bottom_5 = estimated_exposure_df.sort_values(
-    "estimated_exposure_lsoa_month_force",
+    "estimated_exposure_lsoa_month",
     ascending=True
 ).head(5)
 
 print("Bottom 5 lowest exposure:")
 print(bottom_5, '\n')
 
-total_per_force = (
-    gdf
-    .groupby("Force")
-    .size()
-    .reset_index(name="n_police_activity_total")
-)
-print("Total police activity per force:")
-print(total_per_force, '\n')
+##################################
+# Normalize exposure for LSOA area
 
-#######################################
+lsoa = gpd.read_file(r"main\src\LSOA_(2021)_EW_BSC_V4_to_Rural_Urban_Classification.geojson")
+lsoa_proj = lsoa.to_crs(27700)
+
+# Compute area in square meters and square kilometers
+lsoa_proj["area_m2"] = lsoa_proj.geometry.area
+lsoa_proj["area_km2"] = lsoa_proj["area_m2"] / 1e6
+lsoa_area = lsoa_proj[["LSOA21CD", "area_m2", "area_km2"]].copy()
+
+# To check:
+print(lsoa_area.head(), '\n')
+print("Number of LSOAs:", len(lsoa_area), '\n')
+print(lsoa_area["area_km2"].describe(), '\n')
+
+estimated_exposure_df = estimated_exposure_df.merge(
+    lsoa_area,
+    on="LSOA21CD",
+    how="left"
+)
+
+estimated_exposure_df["exposure_per_km2"] = (
+    estimated_exposure_df["estimated_exposure_lsoa_month"] /
+    estimated_exposure_df["area_km2"]
+)
+print("estimated exposure dataframe with extra columns:")
+print(estimated_exposure_df.head(), '\n')
+
+# Top 20 highest normalized exposure
+top_20 = estimated_exposure_df.sort_values(
+    "estimated_exposure_lsoa_month",
+    ascending=False
+).head(20)
+
+print("Top 20 highest normalized exposure:")
+print(top_20, '\n')
+
+# 5 lowest normalized exposure
+bottom_5 = estimated_exposure_df.sort_values(
+    "estimated_exposure_lsoa_month",
+    ascending=True
+).head(5)
+
+print("Bottom 5 lowest normalized exposure:")
+print(bottom_5, '\n')
+
+##################################
+# Visualize stop and searches per LSOA (no temporal patterns visible)
 
 counts = gdf.groupby("LSOA21CD").size().reset_index(name="n_patroulle")
-
-# print("Count dataframe (police activity count per LSOA):")
-# print(counts.head(), counts.shape, counts["n_patroulle"].max())
-
 lsoa_active = lsoa_boundaries.merge(counts, on="LSOA21CD", how="inner")
 geojson = json.loads(lsoa_active.to_json())
 fig = px.choropleth_mapbox(
@@ -172,4 +186,4 @@ fig = px.choropleth_mapbox(
     center={"lat": 51.5, "lon": -0.1},
     opacity=0.6
 )
-fig.show()
+# fig.show()
