@@ -389,3 +389,181 @@ def plot_regression_heatmaps(
     fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved figure → {out_path}")
+
+def plot_per_month_heatmap_panel(
+    results: pd.DataFrame,
+    geojson_path: Path,
+    value_col: str,
+    output_dir: Path,
+    model_name: str = "",
+    per_month: bool = True,
+    cmap: str = "OrRd",
+    month_col: str = "target_month",
+):
+    """
+    Loop helper around plot_regression_heatmaps: one heatmap per month plus
+    one averaged across months. Files written:
+        <output_dir>/<value_col>_<YYYY-MM>.png   per month
+        <output_dir>/<value_col>_average.png     mean per LSOA across months
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    pretty = {
+        "predicted": "Predicted crime",
+        "actual": "Actual crime",
+        "error": "Signed error (predicted − actual)",
+        "abs_error": "Absolute error",
+        "pearson_resid": "Standardised residual",
+    }
+    base_title = pretty.get(value_col, value_col)
+    month_str = pd.to_datetime(results[month_col]).dt.strftime("%Y-%m")
+
+    if per_month:
+        for month in sorted(month_str.unique()):
+            subset = results[month_str == month]
+            title = f"{model_name} — {base_title} — {month}" if model_name else f"{base_title} — {month}"
+            plot_regression_heatmaps(
+                subset, geojson_path,
+                out_path=output_dir / f"{value_col}_{month}.png",
+                value_col=value_col, cmap=cmap, title=title,
+            )
+
+    title = (f"{model_name} — {base_title} — average across test months"
+             if model_name else f"{base_title} — average")
+    plot_regression_heatmaps(
+        results, geojson_path,
+        out_path=output_dir / f"{value_col}_average.png",
+        value_col=value_col, cmap=cmap, title=title,
+    )
+
+
+def plot_significant_mistakes_bars(
+    results_by_model: dict,
+    out_path: Path,
+    threshold: float = 2.0,
+):
+    """
+    Two-panel horizontal bar chart: counts and percentages of significant
+    mistakes per model, split into significant over- vs. under-predictions.
+    A significant mistake is |Pearson residual| > threshold.
+    """
+    try:
+        from src.calculation import pearson_residual
+    except ImportError:
+        from calculation import pearson_residual
+
+    rows = []
+    for name, res in results_by_model.items():
+        resid = pearson_residual(res["actual"].to_numpy(), res["predicted"].to_numpy())
+        n_total = len(resid)
+        n_over = int(np.sum(resid > threshold))
+        n_under = int(np.sum(resid < -threshold))
+        rows.append({
+            "model": name,
+            "count_over": n_over,
+            "count_under": n_under,
+            "pct_over": 100.0 * n_over / max(n_total, 1),
+            "pct_under": 100.0 * n_under / max(n_total, 1),
+        })
+    df = pd.DataFrame(rows).set_index("model")
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4 + 0.4 * len(df)))
+    y = np.arange(len(df))
+
+    ax = axes[0]
+    ax.barh(y, df["count_over"], color="#c0392b",
+            label=f"Over-predict  (residual > +{threshold})")
+    ax.barh(y, df["count_under"], left=df["count_over"], color="#2c3e80",
+            label=f"Under-predict (residual < −{threshold})")
+    ax.set_yticks(y); ax.set_yticklabels(df.index, fontsize=10)
+    ax.set_xlabel("Count of LSOA-months")
+    ax.set_title("Significant mistakes — counts", fontsize=12, fontweight="bold")
+    ax.legend(loc="lower right", fontsize=9)
+    ax.grid(axis="x", linestyle="--", alpha=0.3)
+    ax.spines[["top", "right"]].set_visible(False)
+
+    ax = axes[1]
+    ax.barh(y, df["pct_over"], color="#c0392b")
+    ax.barh(y, df["pct_under"], left=df["pct_over"], color="#2c3e80")
+    ax.set_yticks(y); ax.set_yticklabels(df.index, fontsize=10)
+    ax.set_xlabel("Share of LSOA-months (%)")
+    ax.set_title("Significant mistakes — share", fontsize=12, fontweight="bold")
+    ax.grid(axis="x", linestyle="--", alpha=0.3)
+    ax.spines[["top", "right"]].set_visible(False)
+
+    fig.suptitle(f"Significant mistakes (|standardised residual| > {threshold})",
+                 fontsize=13, fontweight="bold", y=1.02)
+    fig.tight_layout()
+    _save(fig, out_path)
+
+
+def plot_residual_distribution(
+    results_by_model: dict,
+    out_path: Path,
+    threshold: float = 2.0,
+    clip: float = 6.0,
+):
+    """
+    Overlaid step histograms of standardised residuals across models. Dotted
+    verticals at +/- threshold mark the significant-mistake boundary.
+    """
+    try:
+        from src.calculation import pearson_residual
+    except ImportError:
+        from calculation import pearson_residual
+
+    fig, ax = plt.subplots(figsize=(11, 6))
+    bins = np.linspace(-clip, clip, 61)
+
+    for name, res in results_by_model.items():
+        resid = pearson_residual(res["actual"].to_numpy(), res["predicted"].to_numpy())
+        resid = np.clip(resid, -clip, clip)  # tail-clip so the histogram is readable
+        ax.hist(resid, bins=bins, histtype="step", linewidth=2,
+                label=name, color=MODEL_COLOURS.get(name))
+
+    ax.axvline(threshold, color="black", linestyle=":", linewidth=1, alpha=0.6)
+    ax.axvline(-threshold, color="black", linestyle=":", linewidth=1, alpha=0.6)
+    ax.axvline(0, color="black", linewidth=0.7, alpha=0.5)
+    ax.set_xlabel("Standardised residual  (predicted − actual) / √(actual + 1)")
+    ax.set_ylabel("Number of LSOA-months")
+    ax.set_title("Distribution of standardised residuals across models",
+                 fontsize=13, fontweight="bold")
+    ax.legend(fontsize=10)
+    ax.grid(axis="y", linestyle="--", alpha=0.3)
+    ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    _save(fig, out_path)
+
+
+def plot_bias_over_months(
+    per_month_by_model: dict,
+    out_path: Path,
+):
+    """
+    Mean signed error per model over test months. Positive = overestimation,
+    negative = underestimation. Shows whether bias is a stable trait of the
+    model or shifts with seasonality.
+    """
+    all_months = set()
+    for m in per_month_by_model.values():
+        all_months.update(k for k in m.keys() if k != "all_months")
+    months = sorted(all_months)
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    for name, m in per_month_by_model.items():
+        ys = [m.get(mo, {}).get("mean_bias", np.nan) for mo in months]
+        ax.plot(months, ys, marker="o", linewidth=2, label=name,
+                color=MODEL_COLOURS.get(name))
+
+    ax.axhline(0, color="black", linewidth=0.8, alpha=0.6)
+    ax.set_xlabel("Target month")
+    ax.set_ylabel("Mean signed error  (predicted − actual)")
+    ax.set_title("Bias over time — positive means systematic over-prediction",
+                 fontsize=12, fontweight="bold")
+    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.legend(fontsize=10)
+    ax.spines[["top", "right"]].set_visible(False)
+    plt.xticks(rotation=45)
+    fig.tight_layout()
+    _save(fig, out_path)

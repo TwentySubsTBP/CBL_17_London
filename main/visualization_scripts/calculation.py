@@ -21,7 +21,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.neighbors import KNeighborsRegressor
 
 # Configuration 
-DATA_PATH = Path(r"scripts\crime_data.parquet")
+DATA_PATH = Path(r"main\data\for training\crime_data.parquet")
 LSOA_COL = "LSOA code"
 MONTH_COL = "Month"
 
@@ -60,7 +60,7 @@ y = df["crime_next_month"].to_numpy(dtype=np.float32)
 # Time-based split 
 target_months = pd.to_datetime(df["target_month"])
 train_mask = target_months < pd.Timestamp("2025-07-01")
-test_mask = target_months >= pd.Timestamp("2025-07-01")
+test_mask = target_months >= pd.Timestamp("2026-01-01")
 
 X_train, y_train = X[train_mask], y[train_mask]
 X_test, y_test = X[test_mask], y[test_mask]
@@ -275,49 +275,225 @@ def remap_results(
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# EVALUATION HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def pearson_residual(actual, predicted):
+    """
+    Poisson-style standardised residual: (predicted - actual) / sqrt(actual + 1).
+
+    A +5 miss in an LSOA with actual=100 is noise (~0.5 sigma); a +5 miss in an
+    LSOA with actual=0 is a substantive error (5 sigma). The +1 in the
+    denominator avoids divide-by-zero and matches the same low-baseline
+    stabilisation as the anomaly index. Convention used here: |residual| > 2
+    counts as a "significant mistake".
+    """
+    actual = np.asarray(actual, dtype=float)
+    predicted = np.asarray(predicted, dtype=float)
+    return (predicted - actual) / np.sqrt(actual + 1.0)
+
+
+def compute_metrics(results: pd.DataFrame, threshold: float = 2.0) -> dict:
+    """
+    Scalar evaluation metrics from a results table.
+
+    Returns: MAE, MSE, RMSE, mean_bias (positive = systematic overestimation),
+    n_significant_mistakes, pct_significant_mistakes, pct_overestimates,
+    pct_underestimates.
+    """
+    actual = results["actual"].to_numpy(dtype=float)
+    predicted = results["predicted"].to_numpy(dtype=float)
+    error = predicted - actual
+    resid = pearson_residual(actual, predicted)
+
+    n = len(error)
+    n_sig = int(np.sum(np.abs(resid) > threshold))
+
+    return {
+        "MAE": float(np.mean(np.abs(error))),
+        "MSE": float(np.mean(error ** 2)),
+        "RMSE": float(np.sqrt(np.mean(error ** 2))),
+        "mean_bias": float(np.mean(error)),
+        "n_significant_mistakes": n_sig,
+        "pct_significant_mistakes": 100.0 * n_sig / max(n, 1),
+        "pct_overestimates": 100.0 * float(np.mean(error > 0)),
+        "pct_underestimates": 100.0 * float(np.mean(error < 0)),
+    }
+
+
+def compute_per_month_metrics(results: pd.DataFrame, threshold: float = 2.0) -> dict:
+    """
+    Per-month metrics. Returns {YYYY-MM: metrics_dict, ..., 'all_months': metrics_dict}.
+    """
+    out = {}
+    month_str = pd.to_datetime(results["target_month"]).dt.strftime("%Y-%m")
+    for month, group in results.groupby(month_str):
+        out[month] = compute_metrics(group, threshold=threshold)
+    out["all_months"] = compute_metrics(results, threshold=threshold)
+    return out
+
+
+def evaluate_model(
+    results: pd.DataFrame,
+    model_name: str,
+    geojson_path: Path,
+    output_dir: Path,
+    per_month: bool = True,
+    threshold: float = 2.0,
+) -> dict:
+    """
+    Full evaluation for one model: per-month + averaged heatmaps for predicted
+    counts, signed error, and standardised residual. Returns per-month metrics.
+
+    Designed to be called identically for any model — once the NN spits out a
+    prediction array, pass it through build_results_table + remap_results and
+    feed the result here.
+    """
+    from visualization import plot_per_month_heatmap_panel  # local import: avoid cycle
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    res = results.copy()
+    res["pearson_resid"] = pearson_residual(
+        res["actual"].to_numpy(), res["predicted"].to_numpy()
+    )
+
+    print(f"\n=== Evaluating {model_name} ===")
+    metrics = compute_per_month_metrics(res, threshold=threshold)
+    m = metrics["all_months"]
+    print(f"  Across all {res['target_month'].nunique()} test months:")
+    print(f"    MAE  = {m['MAE']:.3f}    RMSE = {m['RMSE']:.3f}    MSE = {m['MSE']:.3f}")
+    print(f"    mean bias = {m['mean_bias']:+.3f}   "
+          f"({m['pct_overestimates']:.1f}% over, {m['pct_underestimates']:.1f}% under)")
+    print(f"    significant mistakes (|residual|>{threshold}): "
+          f"{m['n_significant_mistakes']:,} ({m['pct_significant_mistakes']:.2f}% of LSOA-months)")
+
+    plot_per_month_heatmap_panel(
+        res, geojson_path, value_col="predicted",
+        output_dir=output_dir / "predicted",
+        model_name=model_name, per_month=per_month, cmap="OrRd",
+    )
+    plot_per_month_heatmap_panel(
+        res, geojson_path, value_col="error",
+        output_dir=output_dir / "error",
+        model_name=model_name, per_month=per_month, cmap="RdBu_r",
+    )
+    plot_per_month_heatmap_panel(
+        res, geojson_path, value_col="pearson_resid",
+        output_dir=output_dir / "pearson",
+        model_name=model_name, per_month=per_month, cmap="RdBu_r",
+    )
+
+    return metrics
+
+
+def compare_models(
+    results_by_model: dict,
+    output_dir: Path,
+    threshold: float = 2.0,
+) -> pd.DataFrame:
+    """
+    Cross-model comparison. Produces:
+      - metric_bars_<metric>.png       bar chart per scalar metric
+      - significant_mistakes.png       count + share of |residual|>threshold
+      - residual_distribution.png      histograms of standardised residuals
+      - bias_per_month.png             mean signed error over months
+    Returns the summary DataFrame (rows=models, cols=metrics).
+    """
+    from visualization import (
+        plot_metric_comparison,
+        plot_residual_distribution,
+        plot_significant_mistakes_bars,
+        plot_bias_over_months,
+    )
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    rows = {}
+    per_month_by_model = {}
+    for name, res in results_by_model.items():
+        rows[name] = compute_metrics(res, threshold=threshold)
+        per_month_by_model[name] = compute_per_month_metrics(res, threshold=threshold)
+    summary = pd.DataFrame(rows).T  # rows=models, cols=metrics
+
+    print("\n=== Cross-model summary ===")
+    print(summary.round(3).to_string())
+
+    for metric in ["MAE", "RMSE", "MSE", "mean_bias", "pct_significant_mistakes"]:
+        plot_metric_comparison(
+            summary, metric,
+            out_path=output_dir / f"metric_bars_{metric}.png",
+            title=f"Model comparison — {metric}",
+        )
+
+    plot_significant_mistakes_bars(
+        results_by_model, threshold=threshold,
+        out_path=output_dir / "significant_mistakes.png",
+    )
+    plot_residual_distribution(
+        results_by_model, threshold=threshold,
+        out_path=output_dir / "residual_distribution.png",
+    )
+    plot_bias_over_months(
+        per_month_by_model,
+        out_path=output_dir / "bias_per_month.png",
+    )
+
+    return summary
+
+
+def plot_actual_heatmaps(
+    results: pd.DataFrame,
+    geojson_path: Path,
+    output_dir: Path,
+    per_month: bool = True,
+) -> None:
+    """
+    Ground-truth (actual) crime heatmaps. Only needs to run once — the actual
+    column is the same across all model result tables.
+    """
+    from visualization import plot_per_month_heatmap_panel
+    plot_per_month_heatmap_panel(
+        results, geojson_path, value_col="actual",
+        output_dir=Path(output_dir),
+        model_name="Ground truth", per_month=per_month, cmap="OrRd",
+    )
+
 
 # Only runs when you execute this file directly
 if __name__ == "__main__":
     from pathlib import Path
-    from main.visualization_scripts.visualization import plot_regression_heatmaps
 
-    GEOJSON = Path("LSOA_(2021)_EW_BSC_V4_to_Rural_Urban_Classification.geojson")
-    LOOKUP  = Path("LSOA_(2011)_to_LSOA_(2021)_to_Local_Authority_District_(2022)_Exact_Fit_Lookup_for_EW_(V3).csv");
+    GEOJSON = Path(r"visualization_scripts\LSOA_(2021)_EW_BSC_V4_to_Rural_Urban_Classification.geojson")
+    LOOKUP  = Path(r"visualization_scripts\LSOA_(2011)_to_LSOA_(2021)_to_Local_Authority_District_(2022)_Exact_Fit_Lookup_for_EW_(V3).csv")
 
-    # 1. Load data split (already done at import time, just fetch refs)
     df, test_mask, y_test = get_data_split()
 
-    # 2. Run the model
-    lr_preds = calculate_linear_regression()
+    # 1. Run baselines
+    lr_preds  = calculate_linear_regression()
+    knn_preds = calculate_knn_regression()
 
-    # 3. Build the results table (2011-coded LSOAs still in here)
-    results = build_results_table(df, test_mask, y_test, lr_preds, "Linear Regression")
+    # 2. Build & remap results tables
+    results_lr  = build_results_table(df, test_mask, y_test, lr_preds,  "Linear Regression")
+    results_knn = build_results_table(df, test_mask, y_test, knn_preds, "K-nearest Neighbors")
+    results_lr  = remap_results(results_lr,  lookup_path=LOOKUP)
+    results_knn = remap_results(results_knn, lookup_path=LOOKUP)
 
-    # 4. Remap 2011 -> 2021 LSOA codes so every code matches the GeoJSON
-    results = remap_results(results, lookup_path=LOOKUP)
+    # 3. Ground-truth heatmaps (run once)
+    plot_actual_heatmaps(results_lr, GEOJSON, output_dir=Path("figures/actual"))
 
-    # 5. Plot — all four heatmaps use the same (now-clean) results table
+    # 4. Per-model evaluation
+    metrics_lr  = evaluate_model(results_lr,  "Linear Regression",
+                                 GEOJSON, output_dir=Path("figures/lr"))
+    metrics_knn = evaluate_model(results_knn, "K-nearest Neighbors",
+                                 GEOJSON, output_dir=Path("figures/knn"))
 
-    # Predicted crime heatmap
-    plot_regression_heatmaps(results, GEOJSON,
-        out_path=Path("figures/lr_predicted.png"),
-        value_col="predicted", cmap="OrRd",
-        title="Linear Regression — Predicted crime (next month)")
-
-    # Ground truth heatmap
-    plot_regression_heatmaps(results, GEOJSON,
-        out_path=Path("figures/lr_actual.png"),
-        value_col="actual", cmap="OrRd",
-        title="Ground truth — Actual crime (next month)")
-
-    # Absolute error heatmap
-    plot_regression_heatmaps(results, GEOJSON,
-        out_path=Path("figures/lr_abs_error.png"),
-        value_col="abs_error", cmap="OrRd",
-        title="Linear Regression — Absolute error per LSOA")
-
-    # Signed error — red=overpredicted, blue=underpredicted
-    plot_regression_heatmaps(results, GEOJSON,
-        out_path=Path("figures/lr_error.png"),
-        value_col="error", cmap="RdBu_r",
-        title="Linear Regression — Prediction error (predicted − actual)")
+    # 5. Cross-model comparison
+    summary = compare_models(
+        {"Linear Regression": results_lr, "K-nearest Neighbors": results_knn},
+        output_dir=Path("figures/comparison"),
+    )
+    summary.to_csv("figures/comparison/summary_metrics.csv")

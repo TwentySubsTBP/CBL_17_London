@@ -1,8 +1,8 @@
 from pathlib import Path
 import zipfile
 
-ZIP_FILE = Path("../data/raw/police_latest.zip")
-EXTRACT_DIR = Path("../data/raw/extracted")
+ZIP_FILE    = Path(__file__).resolve().parents[2] / "data" / "raw" / "police_latest.zip"
+EXTRACT_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "extracted"
 
 
 def extract_zip(zip_path: Path, extract_to: Path) -> None:

@@ -73,7 +73,7 @@ df_time_series = df_time_series.set_index(["LSOA code", "Month"]).reindex(full_g
 # 5. SPATIAL NEIGHBOR AGGREGATION (Code Mapping)
 # =====================================================================
 print("Calculating neighbor crime totals using spatial codes...")
-df_neighbors = pd.read_parquet("data/for training/lsoa_neighbors.parquet")
+df_neighbors = pd.read_parquet("main/data/for training/lsoa_neighbors.parquet")
 df_neighbors.columns = ["lsoa", "neighbor_lsoa"]
 
 # Isolate local crime snapshot for neighbor lookup
@@ -132,5 +132,5 @@ print(f"\n--- SUCCESS ---")
 print(f"Final shape: {df_final.shape[0]} rows x {df_final.shape[1]} columns")
 
 
-df_final.to_csv("crime_data.csv", index=False)
-df_final.to_parquet("crime_data.parquet", index=False)
+df_final.to_csv("main/data/for training/crime_data.csv", index=False)
+df_final.to_parquet("main/data/for training/crime_data.parquet", index=False)

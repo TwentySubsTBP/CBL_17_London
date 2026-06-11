@@ -5,7 +5,7 @@ import requests
 URL = "https://data.police.uk/data/archive/latest.zip"
 
 # Save location
-RAW_DIR = Path("../data/raw")
+RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw"
 RAW_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_FILE = RAW_DIR / "police_latest.zip"
