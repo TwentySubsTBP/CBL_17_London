@@ -1,8 +1,7 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
-
-PROJECT_ROOT = Path(r"D:\CBL\CBL_17_London")
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 OUTPUT_PATH = PROJECT_ROOT / "data" / "processed" / "police_workforce_selected_forces.csv"
 
