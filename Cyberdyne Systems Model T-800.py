@@ -7,7 +7,11 @@ from sympy import Lambda
 
 # Configure
 
-DATA_PATH = Path(r"c:\Users\20241553\Documents\crime_project\crime_data.parquet")  # Replace with actual path 
+PROJECT_ROOT = Path(r"D:\CBL\CBL_17_London")
+
+DATA_PATH = PROJECT_ROOT / "scripts" / "crime_data_with_force_stop_search.parquet"
+
+OUTPUT_PATH = PROJECT_ROOT / "outputs" / "model_predictions_by_lsoa_month.csv" 
 
 LSOA_COL = "LSOA code"
 MONTH_COL = "Month"
@@ -76,7 +80,7 @@ candidate_features = [
     "month_sin",
     "month_cos",
     "quarter",
-    "year", 
+    "year",
     "trend_1m",
     "trend_3m",
     "trend_6m",
@@ -85,7 +89,16 @@ candidate_features = [
     "neighbor_trend_6m",
     "crime_ratio_1m",
     "crime_ratio_3m",
-    "neighbor_ratio_1m"
+    "neighbor_ratio_1m",
+
+    # Stop-and-search force-month features
+    "stop_search_count",
+    "ss_object_controlled_drugs",
+    "ss_object_offensive_weapons",
+    "ss_object_stolen_goods",
+    "ss_object_article_for_use_in_theft",
+    "ss_outcome_arrest",
+    "ss_outcome_a_no_further_action_disposal"
 ]
 
 feature_cols = [c for c in candidate_features if c in df.columns]
@@ -124,9 +137,17 @@ X_train = (X_train - mean) / std
 X_val = (X_val - mean) / std
 X_test = (X_test - mean) / std
 
+metadata_cols = [
+    LSOA_COL,
+    MONTH_COL,
+    "target_month",
+    "force_slug",
+    "police_force_name"
+]
+
 test_metadata = df.loc[
     test_mask,
-    [LSOA_COL, MONTH_COL, "target_month"]
+    [c for c in metadata_cols if c in df.columns]
 ].reset_index(drop=True)
 
 # Actual model
@@ -263,3 +284,9 @@ print(
     .head(30)
     .to_string(index=False)
 )
+# Save predictions for police resource allocation
+OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+results.to_csv(OUTPUT_PATH, index=False)
+
+print(f"\nSaved prediction output to: {OUTPUT_PATH}")
