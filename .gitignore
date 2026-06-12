@@ -26,3 +26,4 @@ outputs/
 *.parquet
 *.xlsx
 *.csv
+*.png
