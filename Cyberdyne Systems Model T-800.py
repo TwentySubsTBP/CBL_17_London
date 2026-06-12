@@ -7,7 +7,7 @@ from sympy import Lambda
 
 # Configure
 
-PROJECT_ROOT = Path(r"D:\CBL\CBL_17_London")
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 DATA_PATH = PROJECT_ROOT / "scripts" / "crime_data_with_force_stop_search.parquet"
 
