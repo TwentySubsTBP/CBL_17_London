@@ -91,7 +91,30 @@ available_cities = ["All Cities"] + raw_cities
 
 selected_city = st.sidebar.selectbox("Select City ", available_cities, index=0)
 
-# Filter operational data scopes conditionally
+# --- TEMPORAL SCOPE (DROP-DOWN SELECTOR LIMITED TO 2026) ---
+st.sidebar.markdown("---")
+st.sidebar.header("Temporal Scope")
+
+available_months = sorted(df_trends['Month'].unique())
+month_strings = [
+    pd.to_datetime(m).strftime("%Y-%m")
+    for m in available_months
+    if pd.to_datetime(m).year == 2026
+]
+
+if not month_strings:
+    st.sidebar.error("No data found for the year 2026 in the dataset.")
+    month_strings = [pd.to_datetime(m).strftime("%Y-%m") for m in available_months]
+
+selected_month_str = st.sidebar.selectbox(
+    "Select Target Operational Month",
+    options=month_strings,
+    index=len(month_strings) - 1
+)
+
+selected_month_ts = pd.to_datetime(selected_month_str)
+
+# Filter spatial data scopes dynamically
 if selected_city == "All Cities":
     df_map_filtered = df_map
     df_trends_filtered = df_trends
@@ -101,13 +124,18 @@ else:
     df_trends_filtered = df_trends[df_trends['City_Hub'] == selected_city]
     scope_text = selected_city
 
+df_trends_month_only = df_trends_filtered[df_trends_filtered['Month'] == selected_month_ts]
+
 with st.sidebar.expander("Data Integrity Diagnostics"):
     st.write(f"Total Map Polygons: {len(df_map_filtered)}")
     st.write(f"Matched to Prediction Rows: {df_map_filtered['matched_in_csv'].sum()}")
-    st.write(f"Historical Data Points: {len(df_trends_filtered)}")
+    st.write(f"Historical Data Points (In Selected City): {len(df_trends_filtered)}")
+    st.write(f"Active Incidents in {selected_month_str}: {df_trends_month_only['crime_count'].sum()}")
 
-# --- MAIN SCREEN: CHOROPLETH MAP ---
-st.subheader(f"{scope_text} Strategic Crime Hotspot Map")
+# =====================================================================
+# LAYOUT ROW 1: CHOROPLETH MAP
+# =====================================================================
+st.subheader(f"{scope_text} Strategic Crime Hotspot Map ({selected_month_str})")
 
 viewport = CITY_VIEWPORTS.get(selected_city, {"lat": 52.5, "lon": -1.5, "zoom": 6.0})
 
@@ -131,20 +159,20 @@ fig_map.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0}, height=600)
 st.plotly_chart(fig_map, use_container_width=True)
 
 st.markdown("---")
-st.subheader("Tactical Trend Analytics")
 
+# =====================================================================
+# LAYOUT ROW 2: TACTICAL TREND ANALYTICS
+# =====================================================================
+st.subheader(f"Tactical Trend Analytics (Contextualized to {selected_month_str})")
 chart_col1, chart_col2 = st.columns(2)
 
-# --- CHART 1: LINE CHART FOR TOP RISK HOTSPOT LSOAs ---
 with chart_col1:
-    # Identify the top 5 highest-risk zones currently flagged by the model within selection
     top_hotspot_codes = (
         df_map_filtered.sort_values(by="hotspot_probability", ascending=False)
         .head(5)["LSOA21CD"]
         .values
     )
 
-    # Isolate historical volume trends for these 5 high-risk zones
     df_hotspot_series = df_trends_filtered[df_trends_filtered['LSOA code'].isin(top_hotspot_codes)].copy()
     df_hotspot_series = df_hotspot_series.sort_values(by="Month")
 
@@ -157,14 +185,14 @@ with chart_col1:
         labels={"crime_count": "Monthly Crimes", "Month": "Timeline Month", "LSOA21NM": "Zone Name"},
         markers=True
     )
-    fig_line_hotspots.update_layout(plot_bgcolor="rgba(0,0,0,0)", height=380)
+
+    fig_line_hotspots.add_vline(x=selected_month_ts, line_width=2, line_dash="dash", line_color="black")
+    fig_line_hotspots.update_layout(plot_bgcolor="rgba(0,0,0,0)", height=350)
     fig_line_hotspots.update_xaxes(showgrid=True, gridcolor="#f0f0f0")
     fig_line_hotspots.update_yaxes(showgrid=True, gridcolor="#f0f0f0")
     st.plotly_chart(fig_line_hotspots, use_container_width=True)
 
-# --- CHART 2: LINE CHART FOR AGGREGATE REGIONAL TRAJECTORY ---
 with chart_col2:
-    # Group the selected scope chronologically to review total monthly volume shifts
     df_regional_aggregate = df_trends_filtered.groupby("Month")["crime_count"].sum().reset_index()
     df_regional_aggregate = df_regional_aggregate.sort_values(by="Month")
 
@@ -176,8 +204,94 @@ with chart_col2:
         labels={"crime_count": "Total Crime Count", "Month": "Timeline Month"},
         markers=True
     )
+
+    fig_line_total.add_vline(x=selected_month_ts, line_width=2, line_dash="dash", line_color="black")
     fig_line_total.update_traces(line_color="#2b5c8f")
-    fig_line_total.update_layout(plot_bgcolor="rgba(0,0,0,0)", height=380)
+    fig_line_total.update_layout(plot_bgcolor="rgba(0,0,0,0)", height=350)
     fig_line_total.update_xaxes(showgrid=True, gridcolor="#f0f0f0")
     fig_line_total.update_yaxes(showgrid=True, gridcolor="#f0f0f0")
     st.plotly_chart(fig_line_total, use_container_width=True)
+
+st.markdown("---")
+
+# =====================================================================
+# LAYOUT ROW 3: NEURAL NETWORK PERFORMANCE DIAGNOSTICS (MSE & STD)
+# =====================================================================
+st.subheader("Neural Network Performance Metrics & Error Diagnostics")
+perf_col1, perf_col2 = st.columns(2)
+
+if len(df_map_filtered) > 0:
+    max_crime = df_map_filtered['crime_count'].max()
+    min_crime = df_map_filtered['crime_count'].min()
+
+    if max_crime > min_crime:
+        df_map_filtered['actual_scaled'] = (df_map_filtered['crime_count'] - min_crime) / (max_crime - min_crime)
+    else:
+        df_map_filtered['actual_scaled'] = 0.0
+
+    df_map_filtered['absolute_error'] = (
+                df_map_filtered['hotspot_probability'] - df_map_filtered['actual_scaled']).abs()
+    df_map_filtered['squared_error'] = (df_map_filtered['hotspot_probability'] - df_map_filtered['actual_scaled']) ** 2
+
+    global_mse = df_map_filtered['squared_error'].mean()
+    error_std_dev = df_map_filtered['absolute_error'].std()
+else:
+    global_mse = 0.0
+    error_std_dev = 0.0
+
+with perf_col1:
+    # Group by LSOA21NM instead of administrative district to pinpoint localized errors
+    df_mse_lsoa = (
+        df_map_filtered.groupby('LSOA21NM', observed=False)['squared_error']
+        .mean()
+        .reset_index(name='MSE')
+        .sort_values(by='MSE', ascending=False)
+        .head(10)
+    )
+
+    fig_mse_bar = px.bar(
+        df_mse_lsoa,
+        x='MSE',
+        y='LSOA21NM',
+        orientation='h',
+        title=f"Top 10 High-Error LSOAs (Overall Selection MSE: {global_mse:.4f})",
+        labels={'LSOA21NM': 'LSOA Zone Name', 'MSE': 'Mean Squared Error'},
+        color='MSE',
+        color_continuous_scale="Reds"
+    )
+    fig_mse_bar.update_layout(
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=380,
+        coloraxis_showscale=False,
+        yaxis={'categoryorder': 'total ascending'}
+    )
+    fig_mse_bar.update_xaxes(showgrid=True, gridcolor="#f0f0f0")
+    st.plotly_chart(fig_mse_bar, use_container_width=True)
+
+with perf_col2:
+    fig_err_hist = px.histogram(
+        df_map_filtered,
+        x='absolute_error',
+        nbins=30,
+        title=f"Error Residual Spread & Volatility (Std Dev \u03c3: {error_std_dev:.4f})",
+        labels={'absolute_error': 'Absolute Error Magnitude (|Pred - Actual|)'},
+        color_discrete_sequence=['#2b5c8f']
+    )
+
+    fig_err_hist.add_vline(
+        x=error_std_dev,
+        line_width=3,
+        line_dash="dash",
+        line_color="#d95f02",
+        annotation_text="  Error Std Dev (\u03c3)",
+        annotation_position="top right"
+    )
+
+    fig_err_hist.update_layout(
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=380,
+        yaxis_title="Count of LSOA Zones"
+    )
+    fig_err_hist.update_xaxes(showgrid=True, gridcolor="#f0f0f0")
+    fig_err_hist.update_yaxes(showgrid=True, gridcolor="#f0f0f0")
+    st.plotly_chart(fig_err_hist, use_container_width=True)
