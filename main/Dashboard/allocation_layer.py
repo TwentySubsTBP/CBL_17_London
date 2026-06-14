@@ -196,10 +196,10 @@ def render_allocation_sidebar_controls(sidebar) -> dict:
         return params
 
     params["use_v5_defaults"] = sidebar.checkbox(
-        "Use Model default settings",
+        "Use V5 default settings",
         value=True,
         help=(
-            "Default Model: 30% officer availability, 2 officers per unit, "
+            "Default V5: 30% officer availability, 2 officers per unit, "
             "100% targeted patrol share, 80/20 NN/exploration split, "
             "top 10% LSOAs as hotspot candidates."
         ),
@@ -207,7 +207,7 @@ def render_allocation_sidebar_controls(sidebar) -> dict:
 
     if params["use_v5_defaults"]:
         sidebar.info(
-            "Using Model defaults: 30% patrol availability, 2 officers per patrol unit, "
+            "Using V5 defaults: 30% patrol availability, 2 officers per patrol unit, "
             "top 10% LSOAs as hotspots, 80% NN allocation, 20% exploration."
         )
         return params
