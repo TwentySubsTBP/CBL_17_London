@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import json
-
+from allocation_layer import (
+    render_allocation_sidebar_controls,
+    render_patrol_allocation_section,
+)
 st.set_page_config(layout="wide", page_title="Tactical Crime Forecasting Dashboard")
 
 st.title("Tactical Crime Forecasting Dashboard")
@@ -113,7 +116,7 @@ selected_month_str = st.sidebar.selectbox(
 )
 
 selected_month_ts = pd.to_datetime(selected_month_str)
-
+allocation_params = render_allocation_sidebar_controls(st.sidebar)
 # Filter spatial data scopes dynamically
 if selected_city == "All Cities":
     df_map_filtered = df_map
@@ -157,6 +160,14 @@ fig_map = px.choropleth_mapbox(
 
 fig_map.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0}, height=600)
 st.plotly_chart(fig_map, use_container_width=True)
+render_patrol_allocation_section(
+    df_map_filtered=df_map_filtered,
+    geojson=geojson,
+    viewport=viewport,
+    selected_month_ts=selected_month_ts,
+    scope_text=scope_text,
+    params=allocation_params,
+)
 
 st.markdown("---")
 
