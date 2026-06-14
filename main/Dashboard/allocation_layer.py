@@ -584,6 +584,7 @@ def compute_patrol_allocation_for_month(
 # --------------------------------------------------
 # Streamlit render function
 # --------------------------------------------------
+
 def render_patrol_allocation_section(
     df_map_filtered: pd.DataFrame,
     geojson,
@@ -592,12 +593,16 @@ def render_patrol_allocation_section(
     scope_text: str,
     params: dict,
 ) -> None:
-    """Render patrol allocation map and tables inside the main dashboard."""
+    """Render patrol allocation map, tables, and CSV download inside the dashboard."""
     if not params.get("show_allocation", False):
         return
 
+    month_label = pd.to_datetime(selected_month_ts).strftime("%Y-%m")
+    exploration_share = 1 - params["nn_allocation_share"]
+
     st.markdown("---")
-    st.subheader(f"Patrol Resource Allocation Map ({pd.to_datetime(selected_month_ts).strftime('%Y-%m')})")
+    st.subheader(f"Patrol Resource Allocation ({month_label})")
+    st.caption("Allocation layer version: V5 defaults + tabs + CSV download")
 
     allocation, summary = compute_patrol_allocation_for_month(
         selected_month_str=pd.to_datetime(selected_month_ts).strftime("%Y-%m-%d"),
@@ -649,61 +654,134 @@ def render_patrol_allocation_section(
     metric_col1.metric("Selected LSOAs on map", selected_lsoas_on_map)
     metric_col2.metric("Patrol units on map", total_units_on_map)
     metric_col3.metric("All-force patrol units", total_units_all_forces)
-    metric_col4.metric("NN / exploration", f"{params['nn_allocation_share']:.0%} / {1 - params['nn_allocation_share']:.0%}")
+    metric_col4.metric(
+        "NN / exploration",
+        f"{params['nn_allocation_share']:.0%} / {exploration_share:.0%}",
+    )
 
     if selected_lsoas_on_map == 0:
         st.warning(
             "No allocated LSOAs matched the current map scope. This may be a city filter issue or an LSOA code-version mismatch."
         )
 
-    fig_alloc = px.choropleth_mapbox(
-        df_alloc_map,
-        geojson=geojson,
-        locations="LSOA21CD",
-        featureidkey="properties.LSOA21CD",
-        color="patrol_units_allocated",
-        color_continuous_scale="Blues",
-        mapbox_style="carto-positron",
-        zoom=viewport["zoom"],
-        center={"lat": viewport["lat"], "lon": viewport["lon"]},
-        opacity=0.65,
-        labels={
-            "patrol_units_allocated": "Patrol units",
-            "LSOA21NM": "Zone name",
-        },
-        hover_data=[
-            "LSOA21NM",
-            "City_Hub",
-            "police_force_name",
-            "allocation_type",
-            "patrol_units_allocated",
-            "predicted_crime_count",
-            "actual_crime_count",
-        ],
-    )
-    fig_alloc.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0}, height=600)
-    st.plotly_chart(fig_alloc, use_container_width=True)
-
-    st.markdown("### Patrol allocation summary by police force")
-    st.dataframe(
-        summary.sort_values("total_patrol_units", ascending=False),
-        use_container_width=True,
-        hide_index=True,
+    tab_map, tab_tables, tab_download = st.tabs(
+        ["Allocation Map", "Allocation Tables", "Download CSV"]
     )
 
-    st.markdown("### Top allocated LSOAs")
-    top_lsoas = allocation_map.sort_values("patrol_units_allocated", ascending=False).head(20)
-    st.dataframe(
-        top_lsoas[
-            [
-                "LSOA_code",
+    with tab_map:
+        fig_alloc = px.choropleth_mapbox(
+            df_alloc_map,
+            geojson=geojson,
+            locations="LSOA21CD",
+            featureidkey="properties.LSOA21CD",
+            color="patrol_units_allocated",
+            color_continuous_scale="Blues",
+            mapbox_style="carto-positron",
+            zoom=viewport["zoom"],
+            center={"lat": viewport["lat"], "lon": viewport["lon"]},
+            opacity=0.65,
+            labels={
+                "patrol_units_allocated": "Patrol units",
+                "LSOA21NM": "Zone name",
+            },
+            hover_data=[
+                "LSOA21NM",
+                "City_Hub",
                 "police_force_name",
                 "allocation_type",
                 "patrol_units_allocated",
                 "predicted_crime_count",
                 "actual_crime_count",
-            ]
-        ],
-        use_container_width=True,
-        hide_index=True,
-    )
+            ],
+        )
+
+        fig_alloc.update_layout(
+            margin={"r": 0, "t": 0, "l": 0, "b": 0},
+            height=600,
+        )
+
+        st.plotly_chart(fig_alloc, use_container_width=True)
+
+    with tab_tables:
+        st.markdown("### Patrol allocation summary by police force")
+
+        st.dataframe(
+            summary.sort_values("total_patrol_units", ascending=False),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("### Top allocated LSOAs")
+
+        top_lsoas = (
+            allocation_map
+            .sort_values("patrol_units_allocated", ascending=False)
+            .head(50)
+        )
+
+        st.dataframe(
+            top_lsoas[
+                [
+                    "LSOA_code",
+                    "police_force_name",
+                    "allocation_type",
+                    "patrol_units_allocated",
+                    "predicted_crime_count",
+                    "actual_crime_count",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with tab_download:
+        st.markdown("### Download patrol allocation output")
+
+        allocation_download = allocation.copy().rename(
+            columns={"LSOA code": "LSOA_code"}
+        )
+
+        download_cols = [
+            "LSOA_code",
+            "target_month",
+            "force_slug",
+            "police_force_name",
+            "allocation_type",
+            "patrol_units_allocated",
+            "predicted_crime_count",
+            "actual_crime_count",
+            "total_force_month_patrol_units",
+            "nn_patrol_units_planned",
+            "exploration_patrol_units_planned",
+            "number_of_lsoas_in_force_month",
+            "hotspot_lsoa_share",
+        ]
+
+        available_download_cols = [
+            col for col in download_cols if col in allocation_download.columns
+        ]
+
+        allocation_download = allocation_download[available_download_cols].copy()
+
+        allocation_csv = allocation_download.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="Download LSOA patrol allocation CSV",
+            data=allocation_csv,
+            file_name=f"patrol_allocation_{month_label.replace('-', '_')}.csv",
+            mime="text/csv",
+        )
+
+        st.markdown(
+            "This CSV shows how many patrol units are allocated to each selected LSOA."
+        )
+
+        st.dataframe(
+            allocation_download.sort_values(
+                "patrol_units_allocated",
+                ascending=False,
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
