@@ -151,14 +151,14 @@ estimated_exposure_df = estimated_exposure_df.drop(columns=[
 
 ##################################
 
-alpha = 1  # Strength of the downweighting
+alpha = 2  # Strength of the downweighting
 
 estimated_exposure_df["downweight"] = np.exp(
     -alpha * np.log1p(estimated_exposure_df["estimated_exposure_lsoa_month"])
 )
 
 print("Estimated exposure dataframe, with area-normalisation and downweigths:")
-print(estimated_exposure_df.head(), "\n")
+print(estimated_exposure_df.head(50), "\n")
 
 # Top 10 highest normalized exposure
 top_10 = estimated_exposure_df.sort_values(
@@ -178,11 +178,11 @@ bottom_5 = estimated_exposure_df.sort_values(
 print("Bottom 5 lowest area-normalized exposure:")
 print(bottom_5, '\n')
 
-check = (
-    estimated_exposure_df
-    .groupby("Month")["estimated_exposure_lsoa_month"]
-    .sum()
-)
+##############################
+
+print(estimated_exposure_df["downweight"].describe())
+
+##############################
 
 # CSV: all columns
 estimated_exposure_df.to_csv(
@@ -205,8 +205,6 @@ export_df.to_parquet(
 
 print("CSV saved to:", os.path.abspath("estimated_exposure_lsoa_month_full.csv"))
 print("Parquet saved to:", os.path.abspath("estimated_exposure_lsoa_month_clean.parquet"))
-
-print(os.getcwd())
 
 ##################################
 # Visualize stop and searches per LSOA (no temporal patterns visible)
