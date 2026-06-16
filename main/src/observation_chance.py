@@ -3,6 +3,8 @@ from pathlib import Path
 import geopandas as gpd
 import plotly.express as px
 import json
+import numpy as np
+import os
 
 # Stop and search represents police activity
 # Source: https://www.gov.uk/government/publications/police-powers-and-procedures-in-england-and-wales-201112-user-guide/user-guide-to-police-powers-and-procedures#stop-and-search-1
@@ -74,52 +76,28 @@ gdf["Month"] = pd.to_datetime(gdf["Date"]).dt.to_period("M")
 gdf = gdf[gdf["Month"] >= pd.Period("2023-05", freq="M")].copy()
 print(gdf.head(5), '\n')
 
-########################################
-# Estimate exposure (POOLED OVER ALL FORCES)
-police_activity_lsoa_month = (
-    gdf.groupby(['LSOA21CD', 'Month'])
+##################################
+# STEP 1: LSOA-month counts (BASIS + force info behouden)
+
+estimated_exposure_df = (
+    gdf.groupby(["LSOA21CD", "Month"])
     .size()
     .reset_index(name="n_police_activity")
 )
 
-monthly_total = (
-    police_activity_lsoa_month
-    .groupby(["Month"])["n_police_activity"]
-    .sum()
-    .reset_index(name="n_police_activity_monthly_total")
+# Forces per LSOA-month (lijst van unieke forces)
+lsoa_force_lookup = (
+    gdf.groupby(["LSOA21CD", "Month"])["Force"]
+    .agg(lambda x: list(pd.unique(x)))
+    .reset_index(name="Forces_in_LSOA_month")
 )
 
-estimated_exposure_df = police_activity_lsoa_month.merge(
-    monthly_total,
-    on=["Month"],
+# Merge forces in
+estimated_exposure_df = estimated_exposure_df.merge(
+    lsoa_force_lookup,
+    on=["LSOA21CD", "Month"],
     how="left"
 )
-
-estimated_exposure_df["estimated_exposure_lsoa_month"] = (
-    estimated_exposure_df["n_police_activity"] /
-    estimated_exposure_df["n_police_activity_monthly_total"]
-)
-
-print("Estimated exposure of each LSOA per month relative to total police activity (pooled):")
-print(estimated_exposure_df.head(), '\n')
-
-# Top 20 highest exposure
-top_20 = estimated_exposure_df.sort_values(
-    "estimated_exposure_lsoa_month",
-    ascending=False
-).head(20)
-
-print("Top 20 highest exposure:")
-print(top_20, '\n')
-
-# 5 lowest exposure
-bottom_5 = estimated_exposure_df.sort_values(
-    "estimated_exposure_lsoa_month",
-    ascending=True
-).head(5)
-
-print("Bottom 5 lowest exposure:")
-print(bottom_5, '\n')
 
 ##################################
 # Normalize exposure for LSOA area
@@ -132,32 +110,64 @@ lsoa_proj["area_m2"] = lsoa_proj.geometry.area
 lsoa_proj["area_km2"] = lsoa_proj["area_m2"] / 1e6
 lsoa_area = lsoa_proj[["LSOA21CD", "area_m2", "area_km2"]].copy()
 
-# To check:
-print(lsoa_area.head(), '\n')
-print("Number of LSOAs:", len(lsoa_area), '\n')
-print(lsoa_area["area_km2"].describe(), '\n')
-
 estimated_exposure_df = estimated_exposure_df.merge(
     lsoa_area,
     on="LSOA21CD",
     how="left"
 )
 
-estimated_exposure_df["exposure_per_km2"] = (
-    estimated_exposure_df["estimated_exposure_lsoa_month"] /
+# Police activity density within each LSOA
+estimated_exposure_df["activity_density"] = (
+    estimated_exposure_df["n_police_activity"] /
     estimated_exposure_df["area_km2"]
 )
-print("estimated exposure dataframe with extra columns:")
-print(estimated_exposure_df.head(), '\n')
 
-# Top 20 highest normalized exposure
-top_20 = estimated_exposure_df.sort_values(
+# Monthly total density
+monthly_density_total = (
+    estimated_exposure_df
+    .groupby("Month")["activity_density"]
+    .sum()
+    .reset_index(name="monthly_density_total")
+)
+
+estimated_exposure_df = estimated_exposure_df.merge(
+    monthly_density_total,
+    on="Month",
+    how="left"
+)
+
+# Area-normalized exposure
+estimated_exposure_df["estimated_exposure_lsoa_month"] = (
+    estimated_exposure_df["activity_density"] /
+    estimated_exposure_df["monthly_density_total"]
+)
+
+estimated_exposure_df = estimated_exposure_df.drop(columns=[
+    "area_km2",
+    "area_m2",
+    "activity_density",
+    "monthly_density_total"
+], errors="ignore")
+
+##################################
+
+alpha = 1  # Strength of the downweighting
+
+estimated_exposure_df["downweight"] = np.exp(
+    -alpha * np.log1p(estimated_exposure_df["estimated_exposure_lsoa_month"])
+)
+
+print("Estimated exposure dataframe, with area-normalisation and downweigths:")
+print(estimated_exposure_df.head(), "\n")
+
+# Top 10 highest normalized exposure
+top_10 = estimated_exposure_df.sort_values(
     "estimated_exposure_lsoa_month",
     ascending=False
-).head(20)
+).head(10)
 
-print("Top 20 highest normalized exposure:")
-print(top_20, '\n')
+print("Top 10 highest area-normalized exposure:")
+print(top_10, '\n')
 
 # 5 lowest normalized exposure
 bottom_5 = estimated_exposure_df.sort_values(
@@ -165,8 +175,38 @@ bottom_5 = estimated_exposure_df.sort_values(
     ascending=True
 ).head(5)
 
-print("Bottom 5 lowest normalized exposure:")
+print("Bottom 5 lowest area-normalized exposure:")
 print(bottom_5, '\n')
+
+check = (
+    estimated_exposure_df
+    .groupby("Month")["estimated_exposure_lsoa_month"]
+    .sum()
+)
+
+# CSV: all columns
+estimated_exposure_df.to_csv(
+    "estimated_exposure_lsoa_month_full.csv",
+    index=False
+)
+
+# Parquet: Only usefull columns
+export_df = estimated_exposure_df[[
+    "LSOA21CD",
+    "Month",
+    "estimated_exposure_lsoa_month",
+    "downweight"
+]]
+
+export_df.to_parquet(
+    "estimated_exposure_lsoa_month_clean.parquet",
+    index=False
+)
+
+print("CSV saved to:", os.path.abspath("estimated_exposure_lsoa_month_full.csv"))
+print("Parquet saved to:", os.path.abspath("estimated_exposure_lsoa_month_clean.parquet"))
+
+print(os.getcwd())
 
 ##################################
 # Visualize stop and searches per LSOA (no temporal patterns visible)
