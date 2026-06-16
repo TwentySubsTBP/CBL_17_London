@@ -1,16 +1,29 @@
 # Ignore IDE files
 .idea/
+.vscode/
+
+# Ignore virtual environments
+.venv/
+venv/
+env/
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
 
 # Ignore large datasets
 data/raw/
 data/processed/
 
-# Ignore file types
-*.zip
-*.csv
-*.parquet
-data/*.xlsx
+# Ignore generated outputs
+outputs/
 
-# Python stuff
-__pycache__/
-.ipynb_checkpoints/
+# Ignore large/generated file types
+*.zip
+*.parquet
+*.xlsx
+*.csv
+*.png

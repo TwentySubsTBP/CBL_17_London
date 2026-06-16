@@ -13,8 +13,6 @@ project_root = os.path.dirname(current_dir)              # Points to CBL_17_Lond
 csv_path = os.path.join(current_dir, "london_predictions.csv")
 output_path = os.path.join(current_dir, "london_lsoa_simplified.json")
 if not os.path.exists(csv_path):
-    print(f"❌ Could not find {csv_path}!")
-    print("Please run your smart dummy generator script first to create the CSV file.")
     exit()
 
 # 2. Read your actual London LSOA codes from your dummy data
@@ -55,11 +53,11 @@ for idx, chunk in enumerate(chunks):
             gdf_chunk = gpd.read_file(response.text, driver="GeoJSON")
             if not gdf_chunk.empty:
                 gdfs.append(gdf_chunk)
-                print(f"  ✅ Received batch {idx + 1}/{len(chunks)} ({len(gdf_chunk)} shapes)")
+                print(f"   Received batch {idx + 1}/{len(chunks)} ({len(gdf_chunk)} shapes)")
         else:
-            print(f"  ❌ Batch {idx + 1} failed with status code: {response.status_code}")
+            print(f"   Batch {idx + 1} failed with status code: {response.status_code}")
     except Exception as e:
-        print(f"  ❌ Error fetching batch {idx + 1}: {e}")
+        print(f"  Error fetching batch {idx + 1}: {e}")
 
 # 4. Merge, clean, and standardize
 if gdfs:
@@ -72,7 +70,7 @@ if gdfs:
 
     # Save the file
     gdf_final.to_file(output_path, driver="GeoJSON")
-    print(f"\n✅ SUCCESS! Saved {len(gdf_final)} matches to: {output_path}")
+    print(f"\n SUCCESS! Saved {len(gdf_final)} matches to: {output_path}")
     print("🚀 You are fully clear to run your dashboard now!")
 else:
-    print("\n❌ Failed to fetch boundaries. Double-check your internet connection.")
+    print("\nFailed to fetch boundaries. Double-check your internet connection.")

@@ -1,0 +1,346 @@
+from pathlib import Path
+import hashlib
+import numpy as np
+import pandas as pd
+
+# Improvement over V1:
+# - Does NOT use all officers.
+# - Does NOT cap every force at 300.
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+PREDICTIONS_PATH = PROJECT_ROOT / "outputs" / "model_predictions_by_lsoa_month.csv"
+WORKFORCE_PATH = PROJECT_ROOT / "data" / "processed" / "police_workforce_selected_forces.csv"
+
+OUTPUT_PATH = PROJECT_ROOT / "outputs" / "lsoa_patrol_allocation_80_20_v2_capacity.csv"
+SUMMARY_OUTPUT_PATH = PROJECT_ROOT / "outputs" / "patrol_allocation_80_20_v2_capacity_summary.csv"
+
+# Main assumptions
+
+PATROL_AVAILABILITY_RATE = 0.30
+OFFICERS_PER_PATROL_UNIT = 2
+
+TARGETED_PATROL_SHARE = 1.0
+
+NN_ALLOCATION_SHARE = 0.80
+EXPLORATION_ALLOCATION_SHARE = 0.20
+
+MAX_LSOA_COVERAGE_SHARE = 0.30
+
+MIN_TARGETED_PATROL_SLOTS = 5
+
+RANDOM_SEED = 42
+
+
+def stable_random_seed(force_slug: str, target_month) -> int:
+    """
+    Creates a stable random seed per force-month.
+    This is better than Python's built-in hash(), which can change between runs.
+    """
+    key = f"{force_slug}_{pd.Timestamp(target_month).date()}_{RANDOM_SEED}"
+    return int(hashlib.md5(key.encode("utf-8")).hexdigest()[:8], 16)
+
+
+pred = pd.read_csv(PREDICTIONS_PATH)
+workforce = pd.read_csv(WORKFORCE_PATH)
+
+print("Loaded predictions:", pred.shape)
+print("Loaded workforce:", workforce.shape)
+
+required_pred_cols = [
+    "LSOA code",
+    "target_month",
+    "force_slug",
+    "police_force_name",
+    "actual_crime_count",
+    "predicted_crime_count",
+]
+
+required_workforce_cols = [
+    "force_slug",
+    "police_force_name",
+    "police_officers",
+    "total_paid_workforce",
+    "officers_per_100k_population",
+]
+
+missing_pred_cols = [col for col in required_pred_cols if col not in pred.columns]
+missing_workforce_cols = [col for col in required_workforce_cols if col not in workforce.columns]
+
+if missing_pred_cols:
+    raise ValueError(f"Missing columns in predictions file: {missing_pred_cols}")
+
+if missing_workforce_cols:
+    raise ValueError(f"Missing columns in workforce file: {missing_workforce_cols}")
+
+pred["target_month"] = pd.to_datetime(pred["target_month"])
+
+pred["predicted_crime_count"] = pd.to_numeric(
+    pred["predicted_crime_count"], errors="coerce"
+).fillna(0)
+
+pred["actual_crime_count"] = pd.to_numeric(
+    pred["actual_crime_count"], errors="coerce"
+).fillna(0)
+
+workforce["police_officers"] = pd.to_numeric(
+    workforce["police_officers"], errors="coerce"
+).fillna(0)
+
+workforce["available_patrol_officers"] = (
+    workforce["police_officers"] * PATROL_AVAILABILITY_RATE
+)
+
+workforce["raw_available_patrol_units"] = (
+    workforce["available_patrol_officers"] / OFFICERS_PER_PATROL_UNIT
+)
+
+workforce["targeted_patrol_units_before_lsoa_cap"] = (
+    workforce["raw_available_patrol_units"] * TARGETED_PATROL_SHARE
+)
+
+workforce["targeted_patrol_units_before_lsoa_cap"] = (
+    workforce["targeted_patrol_units_before_lsoa_cap"].round().astype(int)
+)
+
+print("\nEstimated patrol capacity before LSOA coverage cap:")
+print(
+    workforce[
+        [
+            "force_slug",
+            "police_force_name",
+            "police_officers",
+            "available_patrol_officers",
+            "raw_available_patrol_units",
+            "targeted_patrol_units_before_lsoa_cap",
+        ]
+    ]
+)
+
+pred = pred.merge(
+    workforce[
+        [
+            "force_slug",
+            "police_officers",
+            "total_paid_workforce",
+            "officers_per_100k_population",
+            "available_patrol_officers",
+            "raw_available_patrol_units",
+            "targeted_patrol_units_before_lsoa_cap",
+        ]
+    ],
+    on="force_slug",
+    how="left",
+)
+
+if pred["targeted_patrol_units_before_lsoa_cap"].isna().any():
+    missing_forces = pred.loc[
+        pred["targeted_patrol_units_before_lsoa_cap"].isna(),
+        "force_slug",
+    ].unique()
+    raise ValueError(f"Some forces are missing workforce data: {missing_forces}")
+
+
+def allocate_for_force_month(
+    group: pd.DataFrame,
+    force_slug: str,
+    police_force_name: str,
+    target_month,
+) -> pd.DataFrame:
+    """
+    For each police-force-month:
+    - Estimate realistic targeted patrol slots.
+    - 80% goes to highest NN-predicted LSOAs.
+    - 20% goes to controlled random exploration.
+    """
+
+    group = group.copy()
+
+    group["force_slug"] = force_slug
+    group["police_force_name"] = police_force_name
+    group["target_month"] = target_month
+
+    n_lsoas = len(group)
+
+    raw_targeted_units = int(group["targeted_patrol_units_before_lsoa_cap"].iloc[0])
+
+    lsoa_coverage_cap = int(round(n_lsoas * MAX_LSOA_COVERAGE_SHARE))
+    lsoa_coverage_cap = max(MIN_TARGETED_PATROL_SLOTS, lsoa_coverage_cap)
+
+    total_units = min(raw_targeted_units, lsoa_coverage_cap, n_lsoas)
+
+    total_units = max(min(MIN_TARGETED_PATROL_SLOTS, n_lsoas), total_units)
+
+    if total_units <= 0:
+        return pd.DataFrame()
+
+    nn_units = int(round(total_units * NN_ALLOCATION_SHARE))
+    exploration_units = total_units - nn_units
+
+    if total_units >= 5 and exploration_units == 0:
+        exploration_units = 1
+        nn_units = total_units - exploration_units
+
+    # 80% NN allocation
+
+    group_sorted = group.sort_values(
+        by="predicted_crime_count",
+        ascending=False,
+    )
+
+    nn_selected = group_sorted.head(nn_units).copy()
+    nn_selected["allocation_type"] = "NN_hotspot"
+    nn_selected["allocation_reason"] = (
+        "Selected because it has one of the highest neural-network predicted crime counts "
+        "in this police-force-month."
+    )
+
+    remaining = group_sorted.iloc[nn_units:].copy()
+
+    if exploration_units > 0 and len(remaining) > 0:
+        remaining["risk_rank_pct"] = remaining["predicted_crime_count"].rank(
+            pct=True,
+            method="average",
+        )
+        exploration_candidates = remaining[
+            (remaining["risk_rank_pct"] >= 0.30)
+            & (remaining["risk_rank_pct"] <= 0.90)
+        ].copy()
+
+        if len(exploration_candidates) < exploration_units:
+            exploration_candidates = remaining.copy()
+
+        weights = exploration_candidates["predicted_crime_count"].clip(lower=0.01)
+
+        exploration_selected = exploration_candidates.sample(
+            n=min(exploration_units, len(exploration_candidates)),
+            weights=weights,
+            random_state=stable_random_seed(force_slug, target_month),
+            replace=False,
+        ).copy()
+
+        exploration_selected["allocation_type"] = "exploration_random"
+        exploration_selected["allocation_reason"] = (
+            "Selected through controlled random exploration from non-hotspot LSOAs "
+            "to reduce feedback-loop risk."
+        )
+
+        selected = pd.concat([nn_selected, exploration_selected], ignore_index=True)
+
+    else:
+        selected = nn_selected.copy()
+
+    selected["patrol_units_allocated"] = 1
+    selected["total_force_month_patrol_slots"] = total_units
+    selected["nn_units_planned"] = nn_units
+    selected["exploration_units_planned"] = exploration_units
+    selected["number_of_lsoas_in_force_month"] = n_lsoas
+    selected["lsoa_coverage_cap"] = lsoa_coverage_cap
+
+    selected["patrol_availability_rate"] = PATROL_AVAILABILITY_RATE
+    selected["targeted_patrol_share"] = TARGETED_PATROL_SHARE
+    selected["officers_per_patrol_unit"] = OFFICERS_PER_PATROL_UNIT
+    selected["max_lsoa_coverage_share"] = MAX_LSOA_COVERAGE_SHARE
+
+    return selected
+
+
+allocation_parts = []
+
+for (force_slug, police_force_name, target_month), group in pred.groupby(
+    ["force_slug", "police_force_name", "target_month"]
+):
+    allocated_group = allocate_for_force_month(
+        group=group,
+        force_slug=force_slug,
+        police_force_name=police_force_name,
+        target_month=target_month,
+    )
+
+    if not allocated_group.empty:
+        allocation_parts.append(allocated_group)
+
+allocation = pd.concat(allocation_parts, ignore_index=True)
+
+summary = (
+    allocation
+    .groupby(["force_slug", "police_force_name", "target_month"])
+    .agg(
+        total_allocated_lsoas=("LSOA code", "count"),
+        nn_hotspot_allocations=("allocation_type", lambda x: (x == "NN_hotspot").sum()),
+        exploration_allocations=("allocation_type", lambda x: (x == "exploration_random").sum()),
+        total_predicted_crime_in_allocated_areas=("predicted_crime_count", "sum"),
+        avg_predicted_crime_in_allocated_areas=("predicted_crime_count", "mean"),
+        total_actual_crime_in_allocated_areas=("actual_crime_count", "sum"),
+        avg_actual_crime_in_allocated_areas=("actual_crime_count", "mean"),
+        police_officers=("police_officers", "first"),
+        available_patrol_officers=("available_patrol_officers", "first"),
+        raw_available_patrol_units=("raw_available_patrol_units", "first"),
+        targeted_patrol_units_before_lsoa_cap=("targeted_patrol_units_before_lsoa_cap", "first"),
+        total_force_month_patrol_slots=("total_force_month_patrol_slots", "first"),
+        number_of_lsoas_in_force_month=("number_of_lsoas_in_force_month", "first"),
+        lsoa_coverage_cap=("lsoa_coverage_cap", "first"),
+    )
+    .reset_index()
+)
+
+summary["nn_allocation_actual_share"] = (
+    summary["nn_hotspot_allocations"] / summary["total_allocated_lsoas"]
+)
+
+summary["exploration_allocation_actual_share"] = (
+    summary["exploration_allocations"] / summary["total_allocated_lsoas"]
+)
+
+force_summary = (
+    summary
+    .groupby(["force_slug", "police_force_name"])
+    .agg(
+        avg_monthly_allocated_lsoas=("total_allocated_lsoas", "mean"),
+        avg_monthly_nn_hotspots=("nn_hotspot_allocations", "mean"),
+        avg_monthly_exploration=("exploration_allocations", "mean"),
+        avg_monthly_predicted_crime_in_allocated_areas=(
+            "total_predicted_crime_in_allocated_areas",
+            "mean",
+        ),
+        police_officers=("police_officers", "first"),
+        raw_available_patrol_units=("raw_available_patrol_units", "first"),
+        targeted_patrol_units_before_lsoa_cap=(
+            "targeted_patrol_units_before_lsoa_cap",
+            "first",
+        ),
+    )
+    .reset_index()
+    .sort_values("avg_monthly_predicted_crime_in_allocated_areas", ascending=False)
+)
+
+OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+allocation.to_csv(OUTPUT_PATH, index=False)
+summary.to_csv(SUMMARY_OUTPUT_PATH, index=False)
+
+FORCE_SUMMARY_OUTPUT_PATH = PROJECT_ROOT / "outputs" / "patrol_allocation_80_20_v2_force_summary.csv"
+force_summary.to_csv(FORCE_SUMMARY_OUTPUT_PATH, index=False)
+
+print("\nSaved LSOA patrol allocation to:")
+print(OUTPUT_PATH)
+
+print("\nSaved monthly allocation summary to:")
+print(SUMMARY_OUTPUT_PATH)
+
+print("\nSaved force-level allocation summary to:")
+print(FORCE_SUMMARY_OUTPUT_PATH)
+
+print("\nForce-level average allocation preview:")
+print(
+    force_summary[
+        [
+            "force_slug",
+            "police_force_name",
+            "avg_monthly_allocated_lsoas",
+            "avg_monthly_nn_hotspots",
+            "avg_monthly_exploration",
+            "targeted_patrol_units_before_lsoa_cap",
+        ]
+    ]
+)

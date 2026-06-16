@@ -4,12 +4,11 @@ import numpy as np
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw" / "extracted"
 
-CRIME_FEATURES_PATH = PROJECT_ROOT / "main" / "crime_data.parquet"
+CRIME_FEATURES_PATH = PROJECT_ROOT / "data" /"for training"/ "crime_data.parquet"
 
-OUTPUT_PATH = PROJECT_ROOT / "main" / "crime_data_with_force_stop_search.parquet"
+OUTPUT_PATH = PROJECT_ROOT  / "crime_data_with_force_stop_search.parquet"
 
 
 

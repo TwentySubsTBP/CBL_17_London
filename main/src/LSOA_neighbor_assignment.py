@@ -6,7 +6,7 @@ import fastparquet
 This script assigns neighbors to LSOAs using geopandas 
 """
 
-lsoa = gpd.read_file(r"dummy path file")
+lsoa = gpd.read_file(r"data\LSOA_(2021)_EW_BSC_V4_to_Rural_Urban_Classification.geojson")
 lsoa = lsoa.to_crs("EPSG:27700")
 
 neighbors = gpd.sjoin(
@@ -28,6 +28,6 @@ neighbors = neighbors[["lsoa", "neighbor_lsoa"]].drop_duplicates()
 
 
 neighbors.to_parquet(
-    r"dummy path",
+    r"main/data/for training/lsoa_neighbors.parquet",
     index=False
 )
