@@ -7,10 +7,9 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# ==================================================
 # Patrol Allocation Dashboard Layer
 # Default method = V5 unit-intensity allocation
-# ==================================================
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -40,9 +39,8 @@ PREFIX_GAP_WEIGHT = 0.15
 LOCAL_CODE_GAP_WEIGHT = 0.05
 
 
-# --------------------------------------------------
 # Utility functions
-# --------------------------------------------------
+
 def stable_random_seed(force_slug: str, target_month) -> int:
     """Create a stable seed per police-force/month so results are reproducible."""
     key = f"{force_slug}_{pd.Timestamp(target_month).date()}_{RANDOM_SEED}"
@@ -121,10 +119,8 @@ def distribute_integer_units(
     df["patrol_units_allocated"] = allocated_units.astype(int)
     return df[df["patrol_units_allocated"] > 0].copy()
 
-
-# --------------------------------------------------
 # Data loading
-# --------------------------------------------------
+
 @st.cache_data(show_spinner=False)
 def load_allocation_base_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load model predictions and workforce data for allocation."""
@@ -176,10 +172,8 @@ def load_allocation_base_data() -> tuple[pd.DataFrame, pd.DataFrame]:
 
     return pred, workforce
 
-
-# --------------------------------------------------
 # Sidebar controls
-# --------------------------------------------------
+
 def render_allocation_sidebar_controls(sidebar) -> dict:
     """Render patrol allocation controls and return parameter dictionary."""
     sidebar.markdown("---")
@@ -281,9 +275,8 @@ def render_allocation_sidebar_controls(sidebar) -> dict:
     return params
 
 
-# --------------------------------------------------
 # Allocation engine
-# --------------------------------------------------
+
 def calculate_workforce_capacity(
     workforce: pd.DataFrame,
     officer_count_multiplier: float,
@@ -581,9 +574,7 @@ def compute_patrol_allocation_for_month(
     return allocation, summary
 
 
-# --------------------------------------------------
 # Streamlit render function
-# --------------------------------------------------
 
 def render_patrol_allocation_section(
     df_map_filtered: pd.DataFrame,
