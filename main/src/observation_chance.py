@@ -184,27 +184,27 @@ print(estimated_exposure_df["downweight"].describe())
 
 ##############################
 
-# CSV: all columns
-estimated_exposure_df.to_csv(
-    "estimated_exposure_lsoa_month_full.csv",
-    index=False
-)
+# # CSV: all columns
+# estimated_exposure_df.to_csv(
+#     "estimated_exposure_lsoa_month_full.csv",
+#     index=False
+# )
 
-# Parquet: Only usefull columns
-export_df = estimated_exposure_df[[
-    "LSOA21CD",
-    "Month",
-    "estimated_exposure_lsoa_month",
-    "downweight"
-]]
+# # Parquet: Only usefull columns
+# export_df = estimated_exposure_df[[
+#     "LSOA21CD",
+#     "Month",
+#     "estimated_exposure_lsoa_month",
+#     "downweight"
+# ]]
 
-export_df.to_parquet(
-    "estimated_exposure_lsoa_month_clean.parquet",
-    index=False
-)
+# export_df.to_parquet(
+#     "estimated_exposure_lsoa_month_clean.parquet",
+#     index=False
+# )
 
-print("CSV saved to:", os.path.abspath("estimated_exposure_lsoa_month_full.csv"))
-print("Parquet saved to:", os.path.abspath("estimated_exposure_lsoa_month_clean.parquet"))
+# print("CSV saved to:", os.path.abspath("estimated_exposure_lsoa_month_full.csv"))
+# print("Parquet saved to:", os.path.abspath("estimated_exposure_lsoa_month_clean.parquet"))
 
 ##################################
 # Visualize stop and searches per LSOA (no temporal patterns visible)
@@ -224,4 +224,4 @@ fig = px.choropleth_mapbox(
     center={"lat": 51.5, "lon": -0.1},
     opacity=0.6
 )
-# fig.show()
+fig.show()
