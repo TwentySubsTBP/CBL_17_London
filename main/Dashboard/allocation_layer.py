@@ -13,8 +13,8 @@ import streamlit as st
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-PREDICTIONS_PATH = PROJECT_ROOT / "outputs" / "model_predictions_by_lsoa_month.csv"
-WORKFORCE_PATH = PROJECT_ROOT / "data" / "processed" / "police_workforce_selected_forces.csv"
+PREDICTIONS_PATH = PROJECT_ROOT/ "main" /"data"/ "outputs" / "model_predictions_by_lsoa_month.csv"
+WORKFORCE_PATH = PROJECT_ROOT / "main" /"data"/"for dashboard"/"police_workforce_selected_forces.csv"
 
 DEFAULT_CONFIG = {
     "show_allocation": False,

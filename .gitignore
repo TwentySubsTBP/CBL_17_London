@@ -19,7 +19,7 @@ data/raw/
 data/processed/
 
 # Ignore generated outputs
-outputs/
+main/data/outputs/
 
 # Ignore large/generated file types
 *.zip
