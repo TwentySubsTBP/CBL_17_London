@@ -1,4 +1,4 @@
-# CBL 20 sth sth crime stab lodnon
+# CBL 4CBLW020 Addressing real-world crime and security problems with data science
 ## Description
 This is the GitHub page dedicated to CBL 4CBLW020 Addressing real-world crime and security problems with data science at Eindhoven University of Technology, Netherlands  for group 17.
 The front page is split in 2 parts:
