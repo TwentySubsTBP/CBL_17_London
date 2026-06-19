@@ -11,16 +11,16 @@ The front page is split in 2 parts:
 git clone https://github.com/TwentySubsTBP/CBL_17_London
 ```
 
-2. Next step is running the scripts responsible for building the data base
+2. To run the neural network navigate to
 
 ```
-python3 run script that does all the work
+path/to/project /CBL_17_London/main/Network
 ```
 
-3. Finally to get the neural network you should run
+3. And run
 
 ```
-python3 run get neural network script
+Cyberdyne Systems Model T-800.py
 ```
 
 4. And for the Dashboard you should run:
