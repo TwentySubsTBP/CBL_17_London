@@ -37,13 +37,17 @@ The project trained a neural network using street level crime data from 10 citie
 
 ### The Dashboard
 
-**Figure 1. Showcasing the look of the dashboard with a heatmap and city/month selector**
-![Dashboard Heatmap](docs/london_screenshot.png)
-**Figure 2. Showcasing the graphs that accompany the heatmap to provide more context**
+**Figure 1. Showcasing the look of the dashboard with a heatmap for chance of crime and city/month selector**
+![Dashboard Heatmap](docs/London_crime_chance.jpeg)
+**Figure 2. Showcasing the look of the dashboard with a heatmap for amount of crime and city/month selector**
+![Dashboard Heatmap](docs/London_crime_amount.jpeg)
+**Figure 3. Showcasing the look of the dashboard with a police patrol**
+![Dashboard Heatmap](docs/London_police_patrol.jpeg)
+**Figure 4. Showcasing the graphs that accompany the heatmap to provide more context**
 ![Dashboard stats london](docs/london_stats_screenshot.png)
-**Figure 3. Neural network performance**
+**Figure 5. Neural network performance**
 ![NN performance](docs/london_nn_perf_screenshot.png)
-**Figure 4. the selectors which provide a choice of combinations between months and cities**
+**Figure 6. the selectors which provide a choice of combinations between months and cities**
 
 ![City selector](docs/selector_city_screenshot.png)![Month selector](docs/selector_month_screenshot.png)
 ## Resources
