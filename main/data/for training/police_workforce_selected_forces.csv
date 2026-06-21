@@ -1,0 +1,11 @@
+force_slug,police_force_name,workforce_table_name,police_officers,total_paid_workforce,officers_per_100k_population
+city-of-london,City of London Police,"London, City of",999,1639,
+metropolitan,Metropolitan Police Service,Metropolitan Police,32332,45533,356.0
+west-midlands,West Midlands Police,West Midlands,8027,12188,264.0
+merseyside,Merseyside Police,Merseyside,4172,6655,283.0
+west-yorkshire,West Yorkshire Police,West Yorkshire,6130,10499,252.0
+south-yorkshire,South Yorkshire Police,South Yorkshire,3040,5312,213.0
+northumbria,Northumbria Police,Northumbria,3837,5958,254.0
+leicestershire,Leicestershire Police,Leicestershire,2267,3896,193.0
+nottinghamshire,Nottinghamshire Police,Nottinghamshire,2380,3990,200.0
+humberside,Humberside Police,Humberside,2284,3662,237.0
