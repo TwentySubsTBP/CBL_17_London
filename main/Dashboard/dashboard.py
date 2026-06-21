@@ -41,20 +41,9 @@ except Exception:
 # --------------------------------------------------------------------------
 # Paths are resolved relative to THIS script's folder, so it works no matter
 # what directory you launch `streamlit run` from.
-BASE_DIR = Path(__file__).resolve().parent
-
-
-def resolve_path(filename):
-    """Find a file next to this script, in the current dir, or one level up."""
-    candidates = [BASE_DIR / filename, Path.cwd() / filename, BASE_DIR.parent / filename]
-    for c in candidates:
-        if c.exists():
-            return c
-    return BASE_DIR / filename  # default for a clear "not found" message
-
-
-PREDICTIONS_CSV = resolve_path("../data/for dashboard/model_predictions_by_lsoa_month_dashboard.csv")
-GEOJSON_PATH = resolve_path("../data/for dashboard/major_cities_2021_skeleton.geojson")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PREDICTIONS_CSV = PROJECT_ROOT/"main" /"data"/"for dashboard"/"model_predictions_by_lsoa_month_dashboard.csv"
+GEOJSON_PATH =  PROJECT_ROOT/"main"  / "data" /"for dashboard"/"major_cities_2021_skeleton.geojson"
 FEATURE_ID_KEY = "properties.LSOA21CD"
 PROP_CODE, PROP_NAME, PROP_LA = "LSOA21CD", "LSOA21NM", "LocalAuthority"
 
